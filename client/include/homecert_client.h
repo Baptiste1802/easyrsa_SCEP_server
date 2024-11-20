@@ -31,11 +31,12 @@ struct header_t {
 struct message_t {
     char passphrase[PASSPHRASE_SIZE + 1];
     char client_name[CLIENT_NAME_SIZE + 1];
+    uint16_t type_id;
 };
 
 void get_time(char *buffer, size_t buffer_size);
 int is_client_name_safe(const char *client_name);
-int prepare_message(struct message_t *message_buffer, const char *passphrase, const char *client_name);
+int prepare_message(struct message_t *message_buffer, const char *passphrase, const char *client_name, uint16_t type_id);   
 int receive_file(SSL *ssl, const char *client_name, const char *base_path);
 SSL_CTX *init_ctx(void);
 

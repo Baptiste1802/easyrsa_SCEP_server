@@ -27,5 +27,7 @@ run: all
 
 mrproper: clean
 	rm -f $(TARGET)
+	rm *.cert
+	rm *.key
 
 .PHONY: all clean mrproper

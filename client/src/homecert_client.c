@@ -28,12 +28,13 @@ int is_client_name_safe(const char *client_name){
     return 1;
 }
 
-int prepare_message(struct message_t *message_buffer, const char *passphrase, const char *client_name){
+int prepare_message(struct message_t *message_buffer, const char *passphrase, const char *client_name, uint16_t type_id){
 
     strncpy(message_buffer->passphrase, passphrase, PASSPHRASE_SIZE);
     strncpy(message_buffer->client_name, client_name, CLIENT_NAME_SIZE);
     message_buffer->passphrase[PASSPHRASE_SIZE] = '\0';
     message_buffer->client_name[CLIENT_NAME_SIZE] = '\0';
+    message_buffer->type_id = type_id;
 
     return 0;
 }
@@ -44,7 +45,6 @@ int receive_file(SSL *ssl, const char *client_name, const char *base_path   ) {
     char file_path[512];
     ssize_t bytes_received;
 
-    // Lire l'en-tête du fichier
     if (SSL_read(ssl, &header, sizeof(header)) <= 0) {
         fprintf(stderr, "SSL_read() header failed\n");
         ERR_print_errors_fp(stderr);
@@ -56,7 +56,6 @@ int receive_file(SSL *ssl, const char *client_name, const char *base_path   ) {
 
     printf("file_path %s\n", file_path);
 
-    // Déterminer le type de fichier et construire le chemin de destination
     switch (header.file_type) {
         case KEY_FILE:
             printf("Réception d'un fichier clé.\n");
@@ -76,7 +75,6 @@ int receive_file(SSL *ssl, const char *client_name, const char *base_path   ) {
 
     printf("file_path %s\n", file_path);
 
-    // Ouvrir le fichier pour l'écriture
     file = fopen(file_path, "wb");
     if (!file) {
         perror("Erreur d'ouverture du fichier");
@@ -88,7 +86,6 @@ int receive_file(SSL *ssl, const char *client_name, const char *base_path   ) {
 
     printf("Début de la réception du fichier...\n");
 
-    // Réception du fichier
     while (remaining_size > 0) {
         bytes_received = SSL_read(ssl, buffer, sizeof(buffer));
         if (bytes_received <= 0) {
@@ -98,10 +95,8 @@ int receive_file(SSL *ssl, const char *client_name, const char *base_path   ) {
             return -1;
         }
 
-        // Calculer combien de données écrire (au cas où la réception serait plus grande que les données restantes)
         size_t to_write = (bytes_received > remaining_size) ? remaining_size : bytes_received;
 
-        // Écrire dans le fichier
         if (fwrite(buffer, 1, to_write, file) != to_write) {
             perror("Erreur d'écriture dans le fichier");
             fclose(file);
@@ -145,10 +140,12 @@ int main(int argc, char const *argv[]) {
     char passphrase[PASSPHRASE_SIZE+1];
     char client_name[CLIENT_NAME_SIZE+1];
 
+    uint16_t type_id;
+
     printf("Entrez la passphrase : ");
     if (fgets(passphrase, sizeof(passphrase), stdin) == NULL) {
         perror("Erreur lors de la lecture de l'entrée");
-        return 1;
+        exit(1);
     }
     passphrase[strcspn(passphrase, "\n")] = 0;
 
@@ -156,25 +153,31 @@ int main(int argc, char const *argv[]) {
     printf("Entrez le nom du client : ");
     if (fgets(client_name, sizeof(client_name), stdin) == NULL) {
         perror("Erreur lors de la lecture de l'entrée");
-        return 1;
+        exit(1);
     }
     client_name[strcspn(client_name, "\n")] = 0;
 
     if (is_client_name_safe(client_name) == 0){
-        printf("salade\n");
+        printf("client_name not safe\n");
+        exit(1);
+    }
+
+    printf("Entrez 1 pour serveur ou 2 pour client : ");
+    if (scanf("%hu", &type_id) != 1 || (type_id != 1 && type_id != 2)) {
+        printf("Choix invalide.\n");
         exit(1);
     }
 
     struct message_t message_buffer;
 
-    prepare_message(&message_buffer, passphrase, client_name);
+    prepare_message(&message_buffer, passphrase, client_name, type_id);
 
     SSL *ssl;
     SSL_CTX *ctx;
     ctx = init_ctx();
     
     const char *server_ip = "127.0.0.1";
-    int server_port = 666;
+    int server_port = 6666;
 
     if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("socket()");
@@ -213,36 +216,31 @@ int main(int argc, char const *argv[]) {
 
     printf("TLS connecté avec succès\n");
 
-    // Boucle pour envoyer et recevoir des messages
     while (1) {
 
-        // Envoi du message au serveur via SSL
         if (SSL_write(ssl, &message_buffer, sizeof(struct message_t)) <= 0) {
             fprintf(stderr, "Erreur lors de l'envoi des données: ");
             ERR_print_errors_fp(stderr);
             break;
         }
 
-        // Réception du premier fichier
-        if (receive_file(ssl, client_name, "/home/baptiste/Documents/PKI/new") != 0) {
+        if (receive_file(ssl, client_name, "./") != 0) {
             fprintf(stderr, "Erreur lors de la réception du premier fichier\n");
-            break;  // Sortir de la boucle si l'envoi échoue
+            break;
         }
 
-        // Réception du deuxième fichier
-        if (receive_file(ssl, client_name, "/home/baptiste/Documents/PKI/new") != 0) {
+        if (receive_file(ssl, client_name, "./") != 0) {
             fprintf(stderr, "Erreur lors de la réception du deuxième fichier\n");
-            break;  // Sortir de la boucle si l'envoi échoue
+            break;
         }
 
-        break; // Arrêt de la boucle après une première interaction
+        break;
     }
 
     SSL_shutdown(ssl);
     SSL_free(ssl);
     SSL_CTX_free(ctx);
 
-    // Fermeture de la connexion
     close(client_fd);
     return 0;
 }

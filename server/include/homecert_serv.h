@@ -34,6 +34,7 @@
 struct message_t {
     char passphrase[PASSPHRASE_SIZE + 1];
     char client_name[CLIENT_NAME_SIZE + 1];
+    uint16_t type_id;
 };
 
 struct header_t {
@@ -45,8 +46,10 @@ struct header_t {
 void get_time(char *buffer, size_t buffer_size);
 int is_client_name_safe(const char *client_name);
 int generate_request(const char* client_name);
+int sign_request(const char *client_name, const int type_id, const char *passphrase);
 int send_file(SSL *ssl, uint16_t file_type, const char *file_path);
 int send_certificate_and_key(SSL *ssl, const char *client_name, const char *base_path);
+int execute_command(const char *bin_path, char *const args[], const char *inputs[], size_t num_inputs);
 SSL_CTX *init_ctx(const char *cert_file, const char *key_file);
 
 #endif // SERVER_H

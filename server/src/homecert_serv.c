@@ -19,76 +19,54 @@ int is_client_name_safe(const char *client_name){
     return 1;
 }
 
-int generate_request(const char* client_name) {
-
-    if (!client_name) {
-        fprintf(stderr, "client_name is NULL\n");
-        return -1;
-    }
-
-    if (!is_client_name_safe(client_name)) {
-        return -1;
-    }
-
+int execute_command(const char *bin_path, char *const args[], const char *inputs[], size_t num_inputs){
     int pipefd[2]; // contains fd used to write into and read from the pipe 
+
     if (pipe(pipefd) == -1) {
-        fprintf(stderr, "pipe() failed crearting pipe : %s\n", strerror(errno));
+        fprintf(stderr, "pipe() failed creating pipe : %s\n", strerror(errno));
         return -1;
     }
 
     pid_t pid = fork();
     if (pid == -1) {
-        fprintf(stderr, "fork() Failed creating the child process : %s\n", strerror(errno));
+        fprintf(stderr, "fork() Failed creating the child process %s\n", strerror(errno));
         close(pipefd[0]);
         close(pipefd[1]);
         return -1;
     }
 
-    if (pid == 0) {   // pid == 0 -> child processus
+    if (pid == 0) { // pid == 0 -> child processus
         close(pipefd[1]);
-        
+
         // duplicate the pipe reader fd into STDIN_FILENO
         if (dup2(pipefd[0], STDIN_FILENO) == -1) {
-            fprintf(stderr, "dup2() erreur dans le processus enfant : %s\n", strerror(errno));
+            fprintf(stderr, "dup2() failed: %s\n", strerror(errno));
             close(pipefd[0]);
-            _exit(EXIT_FAILURE); // exit child processus
+            _exit(EXIT_FAILURE);  // exit child processus
         }
-        
         close(pipefd[0]); // no longer needed bcs STDIN_FILENO points to it
 
-        // Command preparation 
-        char *const args[] = {
-            "easyrsa",
-            "gen-req",
-            (char *) client_name,
-            "nopass",
-            NULL // tab must end with NULL
-        };
-
-        // TODO pass to command line and verify integrity -> can cause problems if /usr/bin/easyrsa is replaced by smth not good ^^
-        const char *path = "/usr/bin/easyrsa";
-
-        // command execution : easyrsa is used to generate client certificate
-        if (execve(path, args, NULL) == -1) {
-            fprintf(stderr, "execve() failed in the child process : %s\n", strerror(errno));
-            _exit(EXIT_FAILURE); // _exit do not wipe the parent process context
+        // execute the command
+        if (execve(bin_path, args, NULL) == -1) {
+            fprintf(stderr, "execve() failed: %s\n", strerror(errno));
+            _exit(EXIT_FAILURE);
         }
-
-    } else { // pid > 0 -> parent processus
-
+    } else {  // pid > 0 -> parent processus
         close(pipefd[0]); // useless
 
-        if (write(pipefd[1], client_name, strlen(client_name)) == -1) { // send the client name into the pipe
-            // TODO verify size of written octets == sizeof(client_name)
-            fprintf(stderr, "write() parent failed to write into the pipe : %s\n", strerror(errno));
-            close(pipefd[1]);
-            return -1;
-        }
-
-        if (write(pipefd[1], "\n", 1) == -1) { // close the entry
-            fprintf(stderr, "write() parent failed to write into the pipe : %s\n", strerror(errno));
-            close(pipefd[1]);
-            return -1;
+        // Écrire les entrées une par une
+        for (size_t i = 0; i < num_inputs; i++) {
+            if (write(pipefd[1], inputs[i], strlen(inputs[i])) == -1) { // redirected to child STDIN
+                // TODO verify size of written octets == sizeof(client_name)
+                fprintf(stderr, "write() failed: %s\n", strerror(errno));
+                close(pipefd[1]);
+                return -1;
+            }
+            if (write(pipefd[1], "\n", 1) == -1) { // close the entry
+                fprintf(stderr, "write() failed: %s\n", strerror(errno));
+                close(pipefd[1]);
+                return -1;
+            }
         }
 
         close(pipefd[1]); // no longer needed
@@ -102,7 +80,7 @@ int generate_request(const char* client_name) {
 
         if (WIFEXITED(status)) {
             if (WEXITSTATUS(status) == 0) {
-                printf("Certificates successfuly created for %s\n", client_name);
+                fprintf(stdout, "Command successfuly executed\n");
                 return 0;
             } else {
                 fprintf(stderr, "Child processus ended with status code : %d\n", WEXITSTATUS(status));
@@ -116,6 +94,45 @@ int generate_request(const char* client_name) {
     }
 }
 
+int generate_request(const char *client_name){
+    
+    // command args
+    char *const args[] = {
+        "easyrsa",
+        "gen-req",
+        (char *) client_name,
+        "nopass",
+        NULL // tab must end with NULL
+    };
+
+    const char *inputs[] = {client_name};
+
+    return execute_command("/usr/bin/easyrsa", args, inputs, 1);
+
+}
+
+int sign_request(const char *client_name, const int type_id, const char *passphrase){
+    
+
+    const char *type = (type_id == 1) ? "server" : "client";
+
+    // command args
+    char *const args[] = {
+        "easyrsa",
+        "sign-req",
+        (char *)type,
+        (char *)client_name,
+        NULL
+    };
+
+    // Inputs
+    const char *inputs[] = {
+        "yes",
+        (char *) passphrase
+    };
+
+    return execute_command("./easyrsa_modified", args, inputs, 2);
+}
 
 
 int send_file(SSL *ssl, uint16_t file_type, const char *file_path){
@@ -183,7 +200,7 @@ int send_certificate_and_key(SSL *ssl, const char *client_name, const char *base
     char cert_path[512];
     char key_path[512];
 
-    snprintf(cert_path, sizeof(cert_path), "%s/reqs/%s.req", base_path, client_name);
+    snprintf(cert_path, sizeof(cert_path), "%s/issued/%s.crt", base_path, client_name);
     snprintf(key_path, sizeof(key_path), "%s/private/%s.key", base_path, client_name);
 
     if (send_file(ssl, (uint16_t) CERT_FILE, cert_path) == -1){
@@ -238,11 +255,7 @@ SSL_CTX *init_ctx(const char *cert_file, const char *key_file){
 int main(int argc, char const *argv[]){
         
     // TODO secure auth
-    char *passphrase = getpass("Enter passphrase: ");
-    if (passphrase == NULL) {
-        fprintf(stderr, "Error reading passphrase\n");
-        exit(EXIT_FAILURE);
-    }
+    const char *passphrase = "azerty"; // CA passphrase
     
     int server_fd, client_fd, working;
     char buffer[2048];
@@ -257,16 +270,16 @@ int main(int argc, char const *argv[]){
     SSL *ssl;
 
     // TODO pass through command line
-    const char *base_path = "./";
-    const char *cert_file = "./certs/server.crt";
-    const char *key_file = "./certs/server.key";
+    const char *base_path = "./pki";
+    const char *cert_file = "./pki/issued/server.crt";
+    const char *key_file = "./pki/private/server.key";
 
     ctx = init_ctx(cert_file, key_file);
 
     memset(&client_extremity, 0, sizeof(client_extremity)); 
     memset(&self_extremity, 0, sizeof(self_extremity));
     self_extremity.sin_family = AF_INET;
-    self_extremity.sin_port = htons(666);
+    self_extremity.sin_port = htons(6666);
 
     if (inet_pton(AF_INET, "127.0.0.1", &self_extremity.sin_addr) == -1){
         fprintf(stderr, "inet_pton() : %s\n", strerror(errno));
@@ -348,7 +361,14 @@ int main(int argc, char const *argv[]){
 
             if (generate_request(received_message.client_name) == -1){
                 get_time(date_buffer, sizeof(date_buffer));
-                fprintf(stderr, "[%s] failed generating certs for client_name %s\n", date_buffer, received_message.client_name);
+                fprintf(stderr, "[%s] failed generating cert request for client_name %s\n", date_buffer, received_message.client_name);
+                // TODO send error msg
+                break;
+            }
+
+            if (sign_request(received_message.client_name, received_message.type_id, passphrase) == -1){
+                get_time(date_buffer, sizeof(date_buffer));
+                fprintf(stderr, "[%s] failed signing cert request for client_name %s\n", date_buffer, received_message.client_name);
                 // TODO send error msg
                 break;
             }
