@@ -54,8 +54,6 @@ int receive_file(SSL *ssl, const char *client_name, const char *base_path   ) {
     printf("Type de fichier : %u, Taille du fichier : %u\n", header.file_type, header.file_size);
 
 
-    printf("file_path %s\n", file_path);
-
     switch (header.file_type) {
         case KEY_FILE:
             printf("Réception d'un fichier clé.\n");
@@ -105,7 +103,7 @@ int receive_file(SSL *ssl, const char *client_name, const char *base_path   ) {
 
         remaining_size -= to_write;
 
-        printf("Reçu %zu octets, reste %zu octets à recevoir\n", to_write, remaining_size);
+        // printf("Reçu %zu octets, reste %zu octets à recevoir\n", to_write, remaining_size);
     }
 
     printf("Réception terminée\n");
@@ -224,12 +222,12 @@ int main(int argc, char const *argv[]) {
             break;
         }
 
-        if (receive_file(ssl, client_name, "./") != 0) {
+        if (receive_file(ssl, client_name, ".") != 0) {
             fprintf(stderr, "Erreur lors de la réception du premier fichier\n");
             break;
         }
 
-        if (receive_file(ssl, client_name, "./") != 0) {
+        if (receive_file(ssl, client_name, ".") != 0) {
             fprintf(stderr, "Erreur lors de la réception du deuxième fichier\n");
             break;
         }

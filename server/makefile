@@ -33,6 +33,9 @@ clean:
 run: all fix_easyrsa
 	./$(TARGET)
 
+test: all init_pki fix_easyrsa
+	./$(TARGET)
+
 mrproper: clean
 	rm -f $(TARGET)
 	rm -rf easyrsa_modified

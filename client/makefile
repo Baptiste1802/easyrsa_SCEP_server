@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -g -Iinclude
+CFLAGS = -g -Iinclude #-Wall -Wextra 
 LDFLAGS = -lssl -lcrypto
 SRC_DIR = src
 OBJ_DIR = objects
