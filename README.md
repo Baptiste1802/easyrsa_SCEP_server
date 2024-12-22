@@ -1,6 +1,6 @@
 # easyrsa_SCEP_server
 
-## Testing purposes :
+## For testing purposes :
 
 ### shell 1
 
